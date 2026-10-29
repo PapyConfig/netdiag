@@ -1,13 +1,19 @@
 """Capture de paquets.
 
-Mode principal : Scapy + Npcap (live, filtre BPF, export .pcap).
-Mode secours : pktmon, intégré à Windows 10 2004+ (admin requis, sans affichage live),
-converti en .pcapng à l'arrêt.
+Windows : Scapy + Npcap (live) ; secours pktmon (natif, admin, sans affichage live, .pcapng à l'arrêt).
+Linux   : trois méthodes, selon les droits disponibles :
+  - « scapy »   : capture directe, si le processus a cap_net_raw (root) ;
+  - « dumpcap » : moteur de capture de Wireshark (groupe wireshark), flux pcap lu en direct ;
+  - « pkexec »  : tcpdump lancé via polkit par netdiag-capture-helper (mot de passe admin), flux pcap.
+Dans tous les cas Scapy sert au décodage et à l'export.
 """
 from __future__ import annotations
 
 import os
 import queue
+import shutil
+import socket
+import subprocess
 import tempfile
 import threading
 import time
@@ -44,9 +50,67 @@ class Iface:
     label: str         # texte affiché
 
 
+@dataclass
+class Method:
+    key: str           # scapy | dumpcap | pkexec
+    label: str
+    hint: str
+
+
+HELPER_INSTALLED = "/usr/lib/netdiag/netdiag-capture-helper"
+
+
+def helper_path() -> str | None:
+    """Aide de capture polkit : installée par le .deb, sinon celle du dépôt (lancement depuis les sources)."""
+    repo = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+                        "packaging", "linux", "netdiag-capture-helper")
+    for p in (HELPER_INSTALLED, repo):
+        if os.path.isfile(p):
+            return p
+    return None
+
+
+def _can_capture_directly() -> bool:
+    if IS_WINDOWS:
+        return _scapy is not None
+    try:
+        socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.htons(3)).close()
+        return True
+    except (OSError, AttributeError):
+        return False
+
+
+def _dumpcap_usable() -> bool:
+    path = shutil.which("dumpcap")
+    if not path or not os.access(path, os.X_OK):
+        return False
+    if os.geteuid() == 0 or not shutil.which("getcap"):
+        return True
+    _, out, _ = run(["getcap", path])
+    return "cap_net_raw" in out
+
+
+def available_methods() -> list[Method]:
+    if _scapy is None:
+        return []
+    if IS_WINDOWS:
+        return [Method("scapy", "Directe (Npcap)", "Capture live via Npcap.")]
+    methods = []
+    if _can_capture_directly():
+        methods.append(Method("scapy", "Directe", "Le processus a les droits de capture (root ou cap_net_raw)."))
+    if _dumpcap_usable():
+        methods.append(Method("dumpcap", "dumpcap (Wireshark)",
+                              "Moteur de capture de Wireshark : aucun mot de passe si vous êtes dans le groupe wireshark."))
+    if shutil.which("tcpdump") and shutil.which("pkexec") and helper_path():
+        methods.append(Method("pkexec", "tcpdump (mot de passe admin)",
+                              "tcpdump est lancé via polkit : le mot de passe administrateur est demandé au démarrage."))
+    return methods
+
+
 def list_interfaces() -> list[Iface]:
     if _scapy is None:
         return []
+    pinned = [] if IS_WINDOWS else [Iface("any", "any — toutes les interfaces")]
     out = []
     for i in _scapy.conf.ifaces.values():
         ip = getattr(i, "ip", "") or ""
@@ -55,7 +119,7 @@ def list_interfaces() -> list[Iface]:
         if IS_WINDOWS and getattr(i, "name", "") and i.name != desc:
             label = f"{i.name} — {label}"
         out.append(Iface(i.name, label))
-    return sorted(out, key=lambda x: (not x.label.endswith("]"), x.label.lower()))
+    return pinned + sorted(out, key=lambda x: (not x.label.endswith("]"), x.label.lower()))
 
 
 @dataclass
@@ -110,19 +174,30 @@ def summarize(pkt, no: int, t0: float) -> PacketRow:
     return PacketRow(no, float(pkt.time) - t0, src, dst, proto, len(pkt), info)
 
 
-class ScapyCapture:
+_PKEXEC_ERRORS = {126: "Authentification annulée.", 127: "Authentification refusée ou non autorisée."}
+
+
+class Capture:
+    """Capture live : directe (AsyncSniffer) ou flux pcap d'un outil externe (dumpcap / tcpdump)."""
     MAX_PACKETS = 500_000
 
     def __init__(self):
         self.packets: list = []
         self.rows: "queue.Queue[PacketRow]" = queue.Queue()
         self.error = ""
+        self.method = ""
         self._sniffer = None
+        self._proc: subprocess.Popen | None = None
+        self._reader: threading.Thread | None = None
+        self._stopping = False
+        self._limit = 0
         self._t0 = 0.0
         self._lock = threading.Lock()
 
     @property
     def running(self) -> bool:
+        if self._proc is not None:
+            return bool(self._reader and self._reader.is_alive())
         s = self._sniffer
         if not s or not s.running:
             return False
@@ -134,11 +209,21 @@ class ScapyCapture:
             return False
         return True
 
-    def start(self, iface: str | None, bpf: str = "", limit: int = 0):
-        sc = _scapy
+    def start(self, method: str, iface: str | None, bpf: str = "", limit: int = 0):
         self.packets.clear()
         self.error = ""
+        self.method = method
+        self._sniffer = self._proc = None
+        self._stopping = False
+        self._limit = limit
         self._t0 = time.time()
+        if method == "scapy":
+            self._start_direct(None if iface == "any" else iface, bpf, limit)
+        else:
+            self._start_stream(method, iface or "any", bpf, limit)
+
+    def _start_direct(self, iface: str | None, bpf: str, limit: int):
+        sc = _scapy
         # compile le filtre avant de lancer pour remonter l'erreur proprement
         if bpf:
             try:
@@ -150,8 +235,51 @@ class ScapyCapture:
                                         store=False, count=limit or 0)
         self._sniffer.start()
 
+    def _start_stream(self, method: str, iface: str, bpf: str, limit: int):
+        if method == "dumpcap":
+            cmd = ["dumpcap", "-i", iface, "-q", "-F", "pcap", "-w", "-"]
+            cmd += (["-f", bpf] if bpf else []) + (["-c", str(limit)] if limit else [])
+        else:
+            cmd = ["pkexec", helper_path(), iface, str(limit or 0)] + ([bpf] if bpf else [])
+        self._proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self._reader = threading.Thread(target=self._read_stream, args=(self._proc,), daemon=True,
+                                        name=f"capture-{method}")
+        self._reader.start()
+
+    def _read_stream(self, proc: subprocess.Popen):
+        exc = None
+        try:
+            for pkt in _scapy.PcapReader(proc.stdout):
+                self._on_packet(pkt)
+        except Exception as e:  # flux vide (authentification refusée, filtre invalide…) ou tronqué
+            exc = e
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+        err = proc.stderr.read().decode(errors="replace").strip()
+        if self._stopping:
+            return
+        if proc.returncode in _PKEXEC_ERRORS and self.method == "pkexec":
+            self.error = _PKEXEC_ERRORS[proc.returncode]
+        elif proc.returncode not in (0, None) or (exc and not self.packets):
+            lines = [l for l in err.splitlines() if not l.startswith(("listening on", "Capturing on"))]
+            self.error = "\n".join(lines) or str(exc or f"code de sortie {proc.returncode}")
+
     def stop(self):
-        if self.running:
+        self._stopping = True
+        if self._proc is not None:
+            if self.method == "pkexec":
+                # le processus root ne peut pas être tué par nous : l'aide arrête tcpdump à la fermeture de stdin
+                try:
+                    self._proc.stdin.close()
+                except OSError:
+                    pass
+            else:
+                self._proc.terminate()
+            if self._reader:
+                self._reader.join(timeout=5)
+        elif self.running:
             try:
                 self._sniffer.stop()
             except Exception as e:
@@ -159,7 +287,7 @@ class ScapyCapture:
 
     def _on_packet(self, pkt):
         with self._lock:
-            if len(self.packets) >= self.MAX_PACKETS:
+            if len(self.packets) >= self.MAX_PACKETS or (self._limit and len(self.packets) >= self._limit):
                 return
             self.packets.append(pkt)
             no = len(self.packets)

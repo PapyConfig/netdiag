@@ -29,10 +29,12 @@ def decode(data: bytes) -> str:
         return data.decode(_oem_codepage(), errors="replace")
 
 
-def run(cmd: list[str], timeout: float = 30) -> tuple[int, str, str]:
-    """Exécute une commande et renvoie (code, stdout, stderr). Ne lève jamais."""
+def run(cmd: list[str], timeout: float = 30, c_locale: bool = False) -> tuple[int, str, str]:
+    """Exécute une commande et renvoie (code, stdout, stderr). Ne lève jamais.
+    c_locale=True force une sortie non traduite (pour les sorties qu'on analyse)."""
+    env = {**os.environ, "LC_ALL": "C"} if c_locale else None
     try:
-        p = subprocess.run(cmd, capture_output=True, timeout=timeout, creationflags=NO_WINDOW)
+        p = subprocess.run(cmd, capture_output=True, timeout=timeout, creationflags=NO_WINDOW, env=env)
     except subprocess.TimeoutExpired:
         return 1, "", f"Délai dépassé ({timeout}s) : {' '.join(cmd)}"
     except OSError as e:

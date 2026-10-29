@@ -7,9 +7,9 @@ import time
 
 import numpy as np
 import pyqtgraph as pg
-from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QBrush, QColor
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QHBoxLayout, QHeaderView, QLabel,
+from .qt import Qt, QTimer
+from .qt import QBrush, QColor
+from .qt import (QCheckBox, QComboBox, QFileDialog, QHBoxLayout, QHeaderView, QLabel,
                                QLineEdit, QPushButton, QSpinBox, QSplitter, QTableWidget,
                                QTableWidgetItem, QVBoxLayout, QWidget)
 
@@ -59,15 +59,15 @@ class TraceTab(QWidget):
         self.table = QTableWidget(0, len(COLS))
         self.table.setHorizontalHeaderLabels(COLS)
         self.table.verticalHeader().setVisible(False)
-        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.table.setSelectionBehavior(QTableWidget.SelectRows)
-        self.table.setSelectionMode(QTableWidget.SingleSelection)
+        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         self.table.setItemDelegateForColumn(C_BAR, LatencyBarDelegate(self.table))
         hh = self.table.horizontalHeader()
         for c in range(len(COLS)):
-            hh.setSectionResizeMode(c, QHeaderView.ResizeToContents)
-        hh.setSectionResizeMode(C_NAME, QHeaderView.Interactive)
-        hh.setSectionResizeMode(C_BAR, QHeaderView.Stretch)
+            hh.setSectionResizeMode(c, QHeaderView.ResizeMode.ResizeToContents)
+        hh.setSectionResizeMode(C_NAME, QHeaderView.ResizeMode.Interactive)
+        hh.setSectionResizeMode(C_BAR, QHeaderView.ResizeMode.Stretch)
         self.table.setColumnWidth(C_NAME, 260)
         self.table.itemSelectionChanged.connect(self._on_select)
 
@@ -77,11 +77,11 @@ class TraceTab(QWidget):
         self.loss_bars = pg.BarGraphItem(x=[0], height=[0], width=1, brush=QColor(239, 83, 80, 160), pen=None)
         self.loss_bars.setVisible(False)
         self.plot.addItem(self.loss_bars)
-        self.avg_line = pg.InfiniteLine(angle=0, pen=pg.mkPen("#bbbbbb", width=1, style=Qt.DashLine),
+        self.avg_line = pg.InfiniteLine(angle=0, pen=pg.mkPen("#bbbbbb", width=1, style=Qt.PenStyle.DashLine),
                                         label="moy {value:.1f} ms", labelOpts={"position": 0.03, "color": "#bbb"})
         self.plot.addItem(self.avg_line)
 
-        split = QSplitter(Qt.Vertical)
+        split = QSplitter(Qt.Orientation.Vertical)
         split.addWidget(self.table)
         split.addWidget(self.plot)
         split.setSizes([420, 300])
@@ -156,7 +156,7 @@ class TraceTab(QWidget):
                     self.table.setItem(row, c, it)
                 it.setText(v)
                 if c in (C_HOP, C_LOSS, C_AVG, C_MIN, C_CUR, C_MAX, C_JIT, C_SENT):
-                    it.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                    it.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             lc = loss_color(st.loss)
             self.table.item(row, C_LOSS).setBackground(QBrush(lc) if lc else QBrush())
             self.table.item(row, C_AVG).setForeground(QBrush(latency_color(st.avg)))
@@ -167,7 +167,7 @@ class TraceTab(QWidget):
             f.setBold(is_dest)
             for c in (C_HOP, C_IP, C_NAME):
                 self.table.item(row, c).setFont(f)
-            self.table.item(row, C_BAR).setData(Qt.UserRole, {
+            self.table.item(row, C_BAR).setData(Qt.ItemDataRole.UserRole, {
                 "min": st.min, "avg": st.avg, "max": st.max, "cur": st.cur, "loss": st.loss, "scale": scale})
 
         # sélection par défaut : la destination (ou le dernier saut)

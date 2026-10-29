@@ -6,9 +6,9 @@ import threading
 import traceback
 
 import pyqtgraph as pg
-from PySide6.QtCore import QLineF, QObject, QRectF, Qt, Signal
-from PySide6.QtGui import QBrush, QColor, QPainter, QPalette, QPen
-from PySide6.QtWidgets import QApplication, QComboBox, QStyledItemDelegate
+from .qt import QLineF, QObject, QRectF, Qt, Signal
+from .qt import QBrush, QColor, QFont, QFontDatabase, QPainter, QPalette, QPen
+from .qt import QApplication, QComboBox, QStyledItemDelegate
 
 BG = "#1e1f22"
 FG = "#d4d4d4"
@@ -23,16 +23,16 @@ def apply_theme(app: QApplication):
     app.setStyle("Fusion")
     p = QPalette()
     roles = {
-        QPalette.Window: "#2b2d30", QPalette.WindowText: FG, QPalette.Base: BG,
-        QPalette.AlternateBase: "#26282b", QPalette.ToolTipBase: "#2b2d30", QPalette.ToolTipText: FG,
-        QPalette.Text: FG, QPalette.Button: "#3c3f41", QPalette.ButtonText: FG,
-        QPalette.BrightText: "#ff5555", QPalette.Highlight: "#2f65ca", QPalette.HighlightedText: "#ffffff",
-        QPalette.PlaceholderText: "#7a7a7a", QPalette.Link: "#4fc3f7",
+        QPalette.ColorRole.Window: "#2b2d30", QPalette.ColorRole.WindowText: FG, QPalette.ColorRole.Base: BG,
+        QPalette.ColorRole.AlternateBase: "#26282b", QPalette.ColorRole.ToolTipBase: "#2b2d30", QPalette.ColorRole.ToolTipText: FG,
+        QPalette.ColorRole.Text: FG, QPalette.ColorRole.Button: "#3c3f41", QPalette.ColorRole.ButtonText: FG,
+        QPalette.ColorRole.BrightText: "#ff5555", QPalette.ColorRole.Highlight: "#2f65ca", QPalette.ColorRole.HighlightedText: "#ffffff",
+        QPalette.ColorRole.PlaceholderText: "#7a7a7a", QPalette.ColorRole.Link: "#4fc3f7",
     }
     for role, color in roles.items():
         p.setColor(role, QColor(color))
-    p.setColor(QPalette.Disabled, QPalette.Text, QColor("#6a6a6a"))
-    p.setColor(QPalette.Disabled, QPalette.ButtonText, QColor("#6a6a6a"))
+    p.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text, QColor("#6a6a6a"))
+    p.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.ButtonText, QColor("#6a6a6a"))
     app.setPalette(p)
     app.setStyleSheet("""
         QTabBar::tab { padding: 7px 16px; }
@@ -48,6 +48,13 @@ def apply_theme(app: QApplication):
         QPlainTextEdit { font-family: Consolas, 'DejaVu Sans Mono', monospace; }
     """)
     pg.setConfigOptions(antialias=True, background=BG, foreground=FG)
+
+
+def mono_font(size: int = 10) -> QFont:
+    """Police à chasse fixe du système (Consolas sous Windows, DejaVu Sans Mono/Ubuntu Mono sous Linux)."""
+    f = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
+    f.setPointSize(size)
+    return f
 
 
 def latency_color(ms: float | None) -> QColor:
@@ -73,6 +80,8 @@ def loss_color(loss: float) -> QColor | None:
 def fmt_ms(v: float | None) -> str:
     if v is None or (isinstance(v, float) and math.isnan(v)):
         return "-"
+    if v < 1:
+        return f"{v:.2f}"
     return f"{v:.1f}" if v < 10 else f"{v:.0f}"
 
 
@@ -128,20 +137,20 @@ class WindowCombo(QComboBox):
 
 class LatencyBarDelegate(QStyledItemDelegate):
     """Dessine dans la cellule : min–max (moustache), barre jusqu'à la moyenne, point = courant,
-    bandeau rouge proportionnel à la perte. Données dans Qt.UserRole : dict."""
+    bandeau rouge proportionnel à la perte. Données dans Qt.ItemDataRole.UserRole : dict."""
 
     def paint(self, painter: QPainter, option, index):
         super().paint(painter, option, index)
-        d = index.data(Qt.UserRole)
+        d = index.data(Qt.ItemDataRole.UserRole)
         if not d or not d.get("scale"):
             return
         r = QRectF(option.rect).adjusted(4, 4, -4, -4)
         scale = d["scale"]
         x = lambda v: r.left() + min(v, scale) / scale * r.width()
         painter.save()
-        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         # graduations des seuils
-        painter.setPen(QPen(QColor(255, 255, 255, 35), 1, Qt.DashLine))
+        painter.setPen(QPen(QColor(255, 255, 255, 35), 1, Qt.PenStyle.DashLine))
         for t in (WARN_MS, BAD_MS):
             if t < scale:
                 painter.drawLine(QLineF(x(t), r.top(), x(t), r.bottom()))
@@ -156,7 +165,7 @@ class LatencyBarDelegate(QStyledItemDelegate):
             painter.drawLine(QLineF(x(d["max"]), cy - 4, x(d["max"]), cy + 4))
         if d.get("cur") is not None:
             painter.setBrush(QBrush(QColor("#ffffff")))
-            painter.setPen(Qt.NoPen)
+            painter.setPen(Qt.PenStyle.NoPen)
             painter.drawEllipse(QRectF(x(d["cur"]) - 3, r.center().y() - 3, 6, 6))
         if d.get("loss", 0) > 0:
             painter.fillRect(QRectF(r.left(), r.bottom() - 3, r.width() * d["loss"] / 100, 3), QColor("#ef5350"))
@@ -170,5 +179,5 @@ def make_time_plot(ylabel: str = "Latence (ms)") -> pg.PlotWidget:
     pw.setMouseEnabled(x=True, y=False)
     pw.getPlotItem().getViewBox().setLimits(yMin=-50)
     for t, c in ((WARN_MS, "#ffca28"), (BAD_MS, "#ef5350")):
-        pw.addItem(pg.InfiniteLine(pos=t, angle=0, pen=pg.mkPen(c, width=1, style=Qt.DotLine)))
+        pw.addItem(pg.InfiniteLine(pos=t, angle=0, pen=pg.mkPen(c, width=1, style=Qt.PenStyle.DotLine)))
     return pw

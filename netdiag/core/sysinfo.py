@@ -2,7 +2,8 @@
 
 Windows : un seul appel PowerShell (cmdlets NetTCPIP / DnsClient / NetAdapter, sortie CSV
 pour récupérer les énumérations sous forme de texte) + quelques commandes texte classiques
-(ipconfig, route, netsh). Autres OS : psutil + commandes `ip` (pour le développement).
+(ipconfig, route, netsh).
+Linux : voir sysinfo_linux.py (ip -j, /proc/sys, resolvectl, nmcli, ss, ethtool).
 """
 from __future__ import annotations
 
@@ -146,78 +147,6 @@ def _collect_windows_text() -> list[Section]:
         return list(pool.map(one, _WIN_TEXT_SECTIONS))
 
 
-def _collect_generic() -> list[Section]:
-    import psutil
-    secs = []
-    stats = psutil.net_if_stats()
-    s = Section("adapters", "Cartes réseau", "Interfaces",
-                ["Name", "Status", "Speed (Mb/s)", "MTU", "Duplex", "MacAddress"])
-    addrs = psutil.net_if_addrs()
-    for name, st in stats.items():
-        mac = next((a.address for a in addrs.get(name, []) if a.family == psutil.AF_LINK), "")
-        s.rows.append([name, "Up" if st.isup else "Down", str(st.speed), str(st.mtu),
-                       str(st.duplex).split(".")[-1], mac])
-    secs.append(s)
-    s = Section("ipaddr", "Adresses IP", "Interfaces",
-                ["InterfaceAlias", "AddressFamily", "IPAddress", "Netmask", "Broadcast"])
-    for name, lst in addrs.items():
-        for a in lst:
-            if a.family in (socket.AF_INET, socket.AF_INET6):
-                s.rows.append([name, "IPv4" if a.family == socket.AF_INET else "IPv6", a.address,
-                               a.netmask or "", a.broadcast or ""])
-    secs.append(s)
-    s = Section("ipif", "Paramètres IP / MTU par interface", "Interfaces", ["Paramètre", "Valeur"])
-    for p in ["ip_forward", "ip_default_ttl", "tcp_mtu_probing", "tcp_congestion_control",
-              "tcp_ecn", "tcp_window_scaling", "tcp_timestamps", "ip_local_port_range"]:
-        try:
-            with open(f"/proc/sys/net/ipv4/{p}") as f:
-                s.rows.append([f"net.ipv4.{p}", f.read().strip()])
-        except OSError:
-            pass
-    secs.append(s)
-    s = Section("adapter_stats", "Statistiques des cartes", "Interfaces",
-                ["Name", "BytesRecv", "BytesSent", "PacketsRecv", "PacketsSent", "ErrIn", "ErrOut",
-                 "DropIn", "DropOut"])
-    for name, c in psutil.net_io_counters(pernic=True).items():
-        s.rows.append([name] + [str(v) for v in (c.bytes_recv, c.bytes_sent, c.packets_recv,
-                                                 c.packets_sent, c.errin, c.errout, c.dropin, c.dropout)])
-    secs.append(s)
-    s = Section("routes", "Table de routage", "Routage",
-                ["AddressFamily", "DestinationPrefix", "NextHop", "InterfaceAlias", "RouteMetric", "Protocol"])
-    for fam, flag in (("IPv4", "-4"), ("IPv6", "-6")):
-        _, out, _ = run(["ip", flag, "route", "show", "table", "main"])
-        for line in out.splitlines():
-            tok = line.split()
-            if not tok:
-                continue
-            dest = "0.0.0.0/0" if tok[0] == "default" and fam == "IPv4" else ("::/0" if tok[0] == "default" else tok[0])
-            get = lambda k: tok[tok.index(k) + 1] if k in tok and tok.index(k) + 1 < len(tok) else ""
-            s.rows.append([fam, dest, get("via"), get("dev"), get("metric"), get("proto")])
-    secs.append(s)
-    s = Section("neighbors", "Voisins (ARP / NDP)", "Routage", ["IPAddress", "InterfaceAlias", "LinkLayerAddress", "State"])
-    _, out, _ = run(["ip", "neigh"])
-    for line in out.splitlines():
-        tok = line.split()
-        if tok:
-            get = lambda k: tok[tok.index(k) + 1] if k in tok else ""
-            s.rows.append([tok[0], get("dev"), get("lladdr"), tok[-1]])
-    secs.append(s)
-    s = Section("dns_servers", "Serveurs DNS", "DNS", ["InterfaceAlias", "AddressFamily", "ServerAddresses"])
-    try:
-        with open("/etc/resolv.conf") as f:
-            ns = [l.split()[1] for l in f if l.startswith("nameserver")]
-        s.rows.append(["(système)", "", ", ".join(ns)])
-    except OSError as e:
-        s.error = str(e)
-    secs.append(s)
-    for key, title, cmd in [("ipaddr_txt", "ip addr", ["ip", "addr"]),
-                            ("route_txt", "ip route", ["ip", "route"]),
-                            ("resolv", "resolv.conf", ["cat", "/etc/resolv.conf"])]:
-        _, out, err = run(cmd)
-        secs.append(Section(key, title, "Commandes", text=(out or err).rstrip()))
-    return secs
-
-
 def _overview(sections: dict[str, Section]) -> Section:
     def rows(key):
         s = sections.get(key)
@@ -234,21 +163,26 @@ def _overview(sections: dict[str, Section]) -> Section:
         pass
     add("Système", f"{platform.system()} {platform.release()} ({platform.version()})")
     add("Droits administrateur", "Oui" if is_admin() else "Non (capture / certaines actions limitées)")
+    from .icmp import BACKEND
+    add("Moteur ICMP (ping / trace)", BACKEND)
     gws = [f"{r.get('NextHop')}  via {r.get('InterfaceAlias')}  (métrique {r.get('RouteMetric', '')})"
            for r in rows("routes") if r.get("DestinationPrefix") in ("0.0.0.0/0", "::/0")
            and r.get("NextHop") not in ("", "0.0.0.0", "::")]
     for gw in gws or ["(aucune passerelle par défaut)"]:
         add("Passerelle par défaut", gw)
     up = {r.get("Name") for r in rows("adapters") if str(r.get("Status", "")).lower() == "up"}
+    with_ipv4 = set()
     for r in rows("ipaddr"):
         fam = r.get("AddressFamily", "")
         if fam in ("IPv4",) and not r.get("IPAddress", "").startswith(("127.", "169.254.")):
             alias = r.get("InterfaceAlias", "")
+            with_ipv4.add(alias)
             mark = "" if not up or alias in up else "  [interface down]"
             prefix = r.get("PrefixLength") or r.get("Netmask", "")
             add("Adresse IPv4", f"{r.get('IPAddress')}/{prefix}  ({alias}){mark}")
     mtus = {(r.get("InterfaceAlias"), r.get("NlMtu")) for r in rows("ipif")
-            if r.get("AddressFamily") == "IPv4" and r.get("ConnectionState") == "Connected"}
+            if r.get("AddressFamily") == "IPv4" and r.get("ConnectionState") == "Connected"
+            and r.get("InterfaceAlias") in with_ipv4}
     for alias, mtu in sorted(mtus):
         add("MTU IPv4", f"{mtu}  ({alias})")
     dns = []
@@ -259,6 +193,8 @@ def _overview(sections: dict[str, Section]) -> Section:
                 dns.append(ip)
     add("Serveurs DNS", ", ".join(dns) or "(aucun)")
     for r in rows("dns_global"):
+        if r.get("Résolveur"):
+            add("Résolveur", r["Résolveur"])
         if r.get("SuffixSearchList"):
             add("Suffixes DNS", r["SuffixSearchList"])
     return ov
@@ -273,7 +209,8 @@ def collect() -> list[Section]:
             sections = f_ps.result() + f_txt.result()
         _add_effective_metric(sections)
     else:
-        sections = _collect_generic()
+        from .sysinfo_linux import collect_linux
+        sections = collect_linux()
     by_key = {s.key: s for s in sections}
     sections.insert(0, _overview(by_key))
     return sections
@@ -308,15 +245,16 @@ def public_ip(timeout: float = 5) -> str:
 
 
 def flush_dns() -> str:
-    if IS_WINDOWS:
-        _, out, err = run(["ipconfig", "/flushdns"])
-    else:
-        _, out, err = run(["resolvectl", "flush-caches"])
+    if not IS_WINDOWS:
+        from .sysinfo_linux import flush_dns as linux_flush
+        return linux_flush()
+    _, out, err = run(["ipconfig", "/flushdns"])
     return (out or err).strip() or "OK"
 
 
 def renew_dhcp() -> str:
     if not IS_WINDOWS:
-        return "Disponible uniquement sous Windows"
+        from .sysinfo_linux import renew_dhcp as linux_renew
+        return linux_renew()
     _, out, err = run(["ipconfig", "/renew"], timeout=90)
     return (out or err).strip()

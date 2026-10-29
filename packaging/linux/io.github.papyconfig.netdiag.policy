@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+  "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<policyconfig>
+  <vendor>NetDiag</vendor>
+  <action id="io.github.papyconfig.netdiag.capture">
+    <description>Capture network packets</description>
+    <description xml:lang="fr">Capturer le trafic réseau</description>
+    <message>Authentication is required to capture network traffic with NetDiag</message>
+    <message xml:lang="fr">NetDiag a besoin de vos droits administrateur pour capturer le trafic réseau</message>
+    <icon_name>netdiag</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <!-- le mot de passe reste valable quelques minutes : pas de nouvelle demande à chaque capture -->
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/lib/netdiag/netdiag-capture-helper</annotate>
+  </action>
+</policyconfig>

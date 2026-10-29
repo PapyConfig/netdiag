@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont, QGuiApplication
-from PySide6.QtWidgets import (QFileDialog, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPlainTextEdit,
+from .qt import Qt
+from .qt import QBrush, QColor, QGuiApplication
+from .qt import (QFileDialog, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPlainTextEdit,
                                QPushButton, QSplitter, QStackedWidget, QTableWidget, QTableWidgetItem,
                                QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from ..core import sysinfo
-from .common import run_async
+from ..core.utils import IS_WINDOWS
+from .common import mono_font, run_async
 
 
 class SysInfoTab(QWidget):
@@ -44,14 +45,14 @@ class SysInfoTab(QWidget):
         self.tree.currentItemChanged.connect(self._on_select)
 
         self.table = QTableWidget()
-        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setAlternatingRowColors(True)
         self.table.setSortingEnabled(True)
         self.table.verticalHeader().setVisible(False)
         self.text = QPlainTextEdit(readOnly=True)
-        self.text.setLineWrapMode(QPlainTextEdit.NoWrap)
-        self.text.setFont(QFont("Consolas", 10))
+        self.text.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        self.text.setFont(mono_font(10))
         self.err = QLabel(wordWrap=True)
         self.err.setStyleSheet("color:#ef5350; padding:4px")
         self.stack = QStackedWidget()
@@ -95,7 +96,7 @@ class SysInfoTab(QWidget):
             if not members:
                 continue
             gi = QTreeWidgetItem([g])
-            gi.setFlags(gi.flags() & ~Qt.ItemIsSelectable)
+            gi.setFlags(gi.flags() & ~Qt.ItemFlag.ItemIsSelectable)
             f = gi.font(0)
             f.setBold(True)
             gi.setFont(0, f)
@@ -104,9 +105,9 @@ class SysInfoTab(QWidget):
             for s in members:
                 label = s.title + (f"  ({len(s.rows)})" if s.columns and s.key != "overview" else "")
                 it = QTreeWidgetItem([label])
-                it.setData(0, Qt.UserRole, s)
+                it.setData(0, Qt.ItemDataRole.UserRole, s)
                 if s.error:
-                    it.setForeground(0, Qt.red)
+                    it.setForeground(0, QBrush(QColor("#ef5350")))
                 gi.addChild(it)
                 if s.key == prev:
                     select = it
@@ -117,7 +118,7 @@ class SysInfoTab(QWidget):
 
     # ------------------------------------------------------------------ affichage
     def _on_select(self, item, _prev):
-        sec = item.data(0, Qt.UserRole) if item else None
+        sec = item.data(0, Qt.ItemDataRole.UserRole) if item else None
         if not sec:
             return
         self.current = sec
@@ -136,7 +137,7 @@ class SysInfoTab(QWidget):
                 for c, val in enumerate(row):
                     it = QTableWidgetItem(val)
                     if val.lstrip("-").isdigit():  # tri numérique correct
-                        it.setData(Qt.DisplayRole, int(val))
+                        it.setData(Qt.ItemDataRole.DisplayRole, int(val))
                     self.table.setItem(r, c, it)
             self.table.resizeColumnsToContents()
             for c in range(self.table.columnCount()):
@@ -203,6 +204,7 @@ class SysInfoTab(QWidget):
 
     def _renew(self):
         if QMessageBox.question(self, "Renouveler DHCP",
-                                "Lancer « ipconfig /renew » ? La connectivité peut être brièvement coupée.") \
-                == QMessageBox.Yes:
+                                f"Lancer « {'ipconfig /renew' if IS_WINDOWS else 'renouvellement via NetworkManager'} » ? "
+                                "La connectivité peut être brièvement coupée.") \
+                == QMessageBox.StandardButton.Yes:
             self._action(sysinfo.renew_dhcp, "Renouveler DHCP")

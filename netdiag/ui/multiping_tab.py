@@ -7,9 +7,9 @@ import time
 
 import numpy as np
 import pyqtgraph as pg
-from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QBrush
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QHBoxLayout, QHeaderView, QLabel,
+from .qt import Qt, QTimer
+from .qt import QBrush
+from .qt import (QCheckBox, QComboBox, QFileDialog, QHBoxLayout, QHeaderView, QLabel,
                                QLineEdit, QPushButton, QSpinBox, QSplitter, QTableWidget, QTableWidgetItem,
                                QVBoxLayout, QWidget)
 
@@ -66,18 +66,18 @@ class MultiPingTab(QWidget):
         self.table = QTableWidget(0, len(COLS))
         self.table.setHorizontalHeaderLabels(COLS)
         self.table.verticalHeader().setVisible(False)
-        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         hh = self.table.horizontalHeader()
         for c in range(len(COLS)):
-            hh.setSectionResizeMode(c, QHeaderView.ResizeToContents)
-        hh.setSectionResizeMode(len(COLS) - 1, QHeaderView.Stretch)
+            hh.setSectionResizeMode(c, QHeaderView.ResizeMode.ResizeToContents)
+        hh.setSectionResizeMode(len(COLS) - 1, QHeaderView.ResizeMode.Stretch)
         self.table.itemSelectionChanged.connect(self._highlight)
 
         self.plot = make_time_plot()
         self.legend = self.plot.addLegend(offset=(10, 10))
 
-        split = QSplitter(Qt.Vertical)
+        split = QSplitter(Qt.Orientation.Vertical)
         split.addWidget(self.table)
         split.addWidget(self.plot)
         split.setSizes([220, 450])

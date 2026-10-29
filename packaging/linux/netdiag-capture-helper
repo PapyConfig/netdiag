@@ -1,0 +1,42 @@
+#!/bin/bash
+# Aide de capture de NetDiag, lancée en root via pkexec (règle polkit io.github.papyconfig.netdiag.capture).
+# Usage : netdiag-capture-helper INTERFACE NB_PAQUETS [FILTRE_BPF]
+# Écrit un flux pcap sur stdout ; s'arrête quand NetDiag ferme stdin (ou quitte).
+set -u
+iface="${1:-}"
+count="${2:-0}"
+filter="${3:-}"
+
+if [[ ! "$iface" =~ ^[A-Za-z0-9_.:@-]{1,32}$ ]]; then
+    echo "Interface invalide : $iface" >&2
+    exit 2
+fi
+if [[ ! "$count" =~ ^[0-9]{1,9}$ ]]; then
+    echo "Nombre de paquets invalide : $count" >&2
+    exit 2
+fi
+
+# stdin de NetDiag sur le descripteur 3 : une commande en arrière-plan reçoit /dev/null comme stdin
+exec 3<&0
+
+args=(-i "$iface" -U -n -s 0 -w -)
+(( count > 0 )) && args+=(-c "$count")
+# "--" : le filtre ne peut pas être interprété comme une option de tcpdump
+if [[ -n "$filter" ]]; then
+    /usr/bin/tcpdump "${args[@]}" -- "$filter" 3<&- &
+else
+    /usr/bin/tcpdump "${args[@]}" 3<&- &
+fi
+pid=$!
+
+# Bloque jusqu'à la fermeture de stdin par NetDiag, puis arrête tcpdump.
+# En parallèle, si tcpdump s'arrête seul (limite atteinte, erreur), on sort aussi.
+( cat <&3; kill "$pid" ) >/dev/null 2>&1 &
+watcher=$!
+wait "$pid"
+status=$?
+kill "$watcher" 2>/dev/null
+pkill -P "$watcher" 2>/dev/null
+# SIGTERM (143) envoyé par nous = arrêt normal
+(( status == 143 )) && status=0
+exit "$status"

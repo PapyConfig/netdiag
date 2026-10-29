@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=NetDiag
+GenericName=Diagnostic réseau
+GenericName[en]=Network diagnostics
+Comment=Infos réseau, trace continue façon PingPlotter, multi-ping, capture de paquets
+Exec=netdiag
+Icon=netdiag
+Terminal=false
+Categories=Network;System;Monitor;
+Keywords=ping;traceroute;mtr;pingplotter;pcap;capture;dns;mtu;route;réseau;
+StartupWMClass=netdiag

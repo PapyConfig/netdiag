@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from PySide6.QtWidgets import QLabel, QMainWindow, QTabWidget
+from .qt import QLabel, QMainWindow, QTabWidget
 
+from .. import __version__
 from ..core.icmp import BACKEND
 from ..core.utils import is_admin
 from .capture_tab import CaptureTab
@@ -14,7 +15,7 @@ from .trace_tab import TraceTab
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("NetDiag — diagnostic réseau")
+        self.setWindowTitle(f"NetDiag {__version__} — diagnostic réseau")
         self.resize(1400, 860)
         self.tabs = QTabWidget()
         self.sys_tab = SysInfoTab()
@@ -31,8 +32,7 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self.tabs)
 
         admin = is_admin()
-        lbl = QLabel(f"  ICMP : {BACKEND}   |   "
-                     f"{'Administrateur' if admin else 'Utilisateur standard (capture limitée)'}  ")
+        lbl = QLabel(f"  ICMP : {BACKEND}   |   {'Administrateur' if admin else 'Utilisateur standard'}  ")
         lbl.setStyleSheet("color:#9a9a9a")
         self.statusBar().addPermanentWidget(lbl)
         self.sys_tab.refresh()

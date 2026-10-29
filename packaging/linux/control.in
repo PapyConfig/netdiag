@@ -1,0 +1,17 @@
+Package: netdiag
+Version: @VERSION@
+Architecture: all
+Maintainer: PapyConfig <PapyConfig@users.noreply.github.com>
+Installed-Size: @SIZE@
+Depends: python3 (>= 3.10), python3-pyqt6, libqt6svg6, python3-pyqtgraph, python3-numpy, python3-psutil, python3-scapy, python3-dnspython, iproute2, iputils-ping, mtr-tiny | mtr
+Recommends: tcpdump, pkexec | policykit-1, ethtool, qt6-wayland
+Suggests: wireshark
+Section: net
+Priority: optional
+Homepage: https://github.com/PapyConfig/netdiag
+Description: outil graphique de diagnostic réseau (façon PingPlotter)
+ NetDiag regroupe dans une seule fenêtre les informations réseau du système
+ (interfaces, adresses, routes, MTU, paramètres IPv4, DNS, connexions),
+ une trace continue saut par saut avec graphes de latence et de perte,
+ un ping multi-cibles, la capture de paquets (export pcap) et des outils
+ DNS, test de ports TCP et découverte du MTU de chemin.

@@ -3,12 +3,11 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 
-from PySide6.QtGui import QFont
-from PySide6.QtWidgets import (QComboBox, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit,
+from .qt import (QComboBox, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit,
                                QPushButton, QSpinBox, QVBoxLayout, QWidget)
 
 from ..core import tools
-from .common import run_async
+from .common import mono_font, run_async
 
 
 class ToolsTab(QWidget):
@@ -66,7 +65,7 @@ class ToolsTab(QWidget):
             row.addWidget(w, 1)
 
         self.out = QPlainTextEdit(readOnly=True)
-        self.out.setFont(QFont("Consolas", 10))
+        self.out.setFont(mono_font(10))
         clear = QPushButton("Effacer le journal")
         clear.clicked.connect(self.out.clear)
         lay = QVBoxLayout(self)

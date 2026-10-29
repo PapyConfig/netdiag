@@ -1,0 +1,54 @@
+name: build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  linux-deb:
+    name: Ubuntu 24.04 — .deb
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Construire le paquet
+        run: packaging/build-deb.sh
+      - name: Installer le paquet (dépendances apt)
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ./dist/netdiag_*.deb
+      - name: Test de fumée (version installée)
+        env:
+          NETDIAG_ROOT: /usr/lib/netdiag
+          QT_QPA_PLATFORM: offscreen
+        run: python3 tests/smoke.py smoke-linux.png
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: netdiag-deb
+          path: |
+            dist/*.deb
+            smoke-linux.png
+
+  windows:
+    name: Windows — exe
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Dépendances
+        run: pip install -r requirements.txt
+      - name: Test de fumée (IcmpSendEcho, PowerShell, interface)
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python tests/smoke.py smoke-windows.png
+      - name: Construire NetDiag.exe (build.bat)
+        shell: cmd
+        run: build.bat
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: netdiag-windows
+          path: |
+            dist/NetDiag/
+            smoke-windows.png
