@@ -11,11 +11,23 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: Construire le paquet
+      - name: Construire les paquets
         run: packaging/build-deb.sh
-      - name: Installer le paquet (dépendances apt)
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq ./dist/netdiag_*.deb
-      - name: Test de fumée (version installée)
+      - name: Installer netdiag-tui seul (sans recommandés) et vérifier qu'aucun paquet Qt n'est tiré
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends ./dist/netdiag-tui_*.deb
+          ! dpkg -l | grep -qiE '^ii +(python3-pyqt6|libqt6)'
+      - name: Test de fumée TUI (version installée)
+        env:
+          NETDIAG_ROOT: /usr/lib/netdiag
+        run: |
+          netdiag-tui --version
+          netdiag-tui trace 127.0.0.1 --report -c 3 -i 0.2
+          python3 tests/smoke_tui.py
+      - name: Installer l'interface graphique
+        run: sudo apt-get install -y -qq ./dist/netdiag_*.deb
+      - name: Test de fumée GUI (version installée)
         env:
           NETDIAG_ROOT: /usr/lib/netdiag
           QT_QPA_PLATFORM: offscreen

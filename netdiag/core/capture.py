@@ -4,7 +4,8 @@ Windows : Scapy + Npcap (live) ; secours pktmon (natif, admin, sans affichage li
 Linux   : trois méthodes, selon les droits disponibles :
   - « scapy »   : capture directe, si le processus a cap_net_raw (root) ;
   - « dumpcap » : moteur de capture de Wireshark (groupe wireshark), flux pcap lu en direct ;
-  - « pkexec »  : tcpdump lancé via polkit par netdiag-capture-helper (mot de passe admin), flux pcap.
+  - « pkexec »  : tcpdump lancé via polkit par netdiag-capture-helper (mot de passe admin), flux pcap ;
+  - « sudo »    : idem via sudo, pour la version terminal (le mot de passe est demandé dans le terminal).
 Dans tous les cas Scapy sert au décodage et à l'export.
 """
 from __future__ import annotations
@@ -90,7 +91,8 @@ def _dumpcap_usable() -> bool:
     return "cap_net_raw" in out
 
 
-def available_methods() -> list[Method]:
+def available_methods(terminal: bool = False) -> list[Method]:
+    """terminal=True : version TUI, où sudo remplace pkexec (pas d'agent polkit graphique en SSH)."""
     if _scapy is None:
         return []
     if IS_WINDOWS:
@@ -101,7 +103,11 @@ def available_methods() -> list[Method]:
     if _dumpcap_usable():
         methods.append(Method("dumpcap", "dumpcap (Wireshark)",
                               "Moteur de capture de Wireshark : aucun mot de passe si vous êtes dans le groupe wireshark."))
-    if shutil.which("tcpdump") and shutil.which("pkexec") and helper_path():
+    if terminal:
+        if shutil.which("tcpdump") and shutil.which("sudo") and helper_path():
+            methods.append(Method("sudo", "tcpdump (sudo)",
+                                  "tcpdump via sudo : votre mot de passe est demandé dans le terminal au démarrage."))
+    elif shutil.which("tcpdump") and shutil.which("pkexec") and helper_path():
         methods.append(Method("pkexec", "tcpdump (mot de passe admin)",
                               "tcpdump est lancé via polkit : le mot de passe administrateur est demandé au démarrage."))
     return methods
@@ -110,12 +116,12 @@ def available_methods() -> list[Method]:
 def list_interfaces() -> list[Iface]:
     if _scapy is None:
         return []
-    pinned = [] if IS_WINDOWS else [Iface("any", "any — toutes les interfaces")]
+    pinned = [] if IS_WINDOWS else [Iface("any", "any (toutes)")]
     out = []
     for i in _scapy.conf.ifaces.values():
         ip = getattr(i, "ip", "") or ""
         desc = getattr(i, "description", "") or i.name
-        label = f"{desc}  [{ip}]" if ip else desc
+        label = f"{desc} [{ip}]" if ip else desc
         if IS_WINDOWS and getattr(i, "name", "") and i.name != desc:
             label = f"{i.name} — {label}"
         out.append(Iface(i.name, label))
@@ -240,7 +246,9 @@ class Capture:
             cmd = ["dumpcap", "-i", iface, "-q", "-F", "pcap", "-w", "-"]
             cmd += (["-f", bpf] if bpf else []) + (["-c", str(limit)] if limit else [])
         else:
-            cmd = ["pkexec", helper_path(), iface, str(limit or 0)] + ([bpf] if bpf else [])
+            # pkexec (GUI) ou sudo -n (TUI, identifiants validés au préalable par « sudo -v »)
+            launcher = ["pkexec"] if method == "pkexec" else ["sudo", "-n"]
+            cmd = launcher + [helper_path(), iface, str(limit or 0)] + ([bpf] if bpf else [])
         self._proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         self._reader = threading.Thread(target=self._read_stream, args=(self._proc,), daemon=True,
                                         name=f"capture-{method}")
@@ -269,7 +277,7 @@ class Capture:
     def stop(self):
         self._stopping = True
         if self._proc is not None:
-            if self.method == "pkexec":
+            if self.method in ("pkexec", "sudo"):
                 # le processus root ne peut pas être tué par nous : l'aide arrête tcpdump à la fermeture de stdin
                 try:
                     self._proc.stdin.close()

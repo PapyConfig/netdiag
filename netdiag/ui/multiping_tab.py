@@ -109,31 +109,9 @@ class MultiPingTab(QWidget):
         self.input.clear()
 
     def _add_local(self):
-        from ..core.utils import IS_WINDOWS, run, run_powershell
+        from ..core.multiping import local_targets
         from .common import run_async
-
-        def find():
-            hosts = []
-            if IS_WINDOWS:
-                _, out, _ = run_powershell(
-                    "(Get-NetRoute -DestinationPrefix 0.0.0.0/0 | Sort-Object RouteMetric).NextHop;"
-                    "(Get-DnsClientServerAddress -AddressFamily IPv4).ServerAddresses")
-                hosts = [l.strip() for l in out.splitlines()]
-            else:
-                _, out, _ = run(["ip", "route", "show", "default"])
-                hosts = [l.split()[2] for l in out.splitlines() if len(l.split()) > 2]
-                try:
-                    with open("/etc/resolv.conf") as f:
-                        hosts += [l.split()[1] for l in f if l.startswith("nameserver")]
-                except OSError:
-                    pass
-            seen = []
-            for h in hosts:
-                if h and h not in seen and h not in ("0.0.0.0",) and ":" not in h:
-                    seen.append(h)
-            return seen
-
-        run_async(find, lambda r, e: self.add_targets(r or []))
+        run_async(local_targets, lambda r, e: self.add_targets(r or []))
 
     def start_all(self):
         for t in self.targets:

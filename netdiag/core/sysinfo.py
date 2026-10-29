@@ -258,3 +258,22 @@ def renew_dhcp() -> str:
         return linux_renew()
     _, out, err = run(["ipconfig", "/renew"], timeout=90)
     return (out or err).strip()
+
+
+def format_table(columns: list[str], rows: list[list[str]], max_width: int = 60) -> str:
+    """Tableau texte aligné (cellules tronquées à max_width caractères)."""
+    cut = lambda v: v if len(v) <= max_width else v[:max_width - 1] + "…"
+    rows = [[cut(str(c)) for c in r] for r in rows]
+    widths = [max([len(c)] + [len(r[i]) for r in rows if i < len(r)]) for i, c in enumerate(columns)]
+    line = lambda cells: "  ".join(c.ljust(w) for c, w in zip(cells, widths)).rstrip()
+    return "\n".join([line(columns), line(["-" * w for w in widths])] + [line(r) for r in rows])
+
+
+def report_text(sections: list[Section]) -> str:
+    out = []
+    for s in sections:
+        out.append(f"\n{'=' * 100}\n{s.group} / {s.title}\n{'=' * 100}")
+        if s.error:
+            out.append(f"ERREUR : {s.error}")
+        out.append(s.text if s.text is not None else format_table(s.columns, s.rows))
+    return "\n".join(out) + "\n"

@@ -1,0 +1,21 @@
+Package: netdiag-tui
+Version: @VERSION@
+Architecture: all
+Maintainer: PapyConfig <PapyConfig@users.noreply.github.com>
+Installed-Size: @SIZE@
+Depends: python3 (>= 3.10), python3-urwid (>= 2.1), python3-psutil, python3-scapy, python3-dnspython, iproute2, iputils-ping, mtr-tiny | mtr, tcpdump
+Recommends: sudo, ethtool
+Suggests: netdiag, wireshark-common
+Breaks: netdiag (<< 0.3.0)
+Replaces: netdiag (<< 0.3.0)
+Section: net
+Priority: optional
+Homepage: https://github.com/PapyConfig/netdiag
+Description: diagnostic réseau en terminal (façon mtr / PingPlotter)
+ netdiag-tui est la version terminal de NetDiag, utilisable dans tmux ou en SSH :
+ informations réseau du système (interfaces, routes, MTU, paramètres IPv4, DNS,
+ connexions), trace continue saut par saut avec historique et graphe de latence,
+ ping multi-cibles, capture de paquets (export pcap), outils DNS, ports TCP et
+ MTU de chemin. Modes rapport texte et JSON pour les scripts.
+ .
+ Ce paquet contient aussi le moteur commun utilisé par l'interface graphique (paquet netdiag).

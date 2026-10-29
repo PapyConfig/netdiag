@@ -26,7 +26,7 @@ class Hop:
 
 class TraceSession:
     def __init__(self, target: str, interval: float = 2.5, max_hops: int = 30, size: int = 32,
-                 timeout: int = 2000, resolve_names: bool = True):
+                 timeout: int = 2000, resolve_names: bool = True, max_cycles: int | None = None):
         self.target = target.strip()
         self.target_ip: str | None = None
         self.interval = interval
@@ -34,6 +34,7 @@ class TraceSession:
         self.size = size
         self.timeout = timeout
         self.resolve_names = resolve_names
+        self.max_cycles = max_cycles      # None = continu ; sinon s'arrête après N cycles (mode rapport)
         self.dest_ttl: int | None = None
         self.error = ""
         self.cycles = 0
@@ -103,6 +104,10 @@ class TraceSession:
                         self._hops.setdefault(ttl, Hop(ttl))
                     pool.submit(self._probe, ttl, t0)
                 self.cycles += 1
+                if self.max_cycles and self.cycles >= self.max_cycles:
+                    pool.shutdown(wait=True)  # attendre les dernières réponses avant de se déclarer terminé
+                    self._rdns.shutdown(wait=True)
+                    break
                 self._stop.wait(max(0.0, self.interval - (time.time() - t0)))
         finally:
             pool.shutdown(wait=False, cancel_futures=True)
