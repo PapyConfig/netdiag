@@ -8,6 +8,9 @@ import sys
 import time
 import traceback
 
+# console Windows en cp1252 : forcer l'UTF-8 pour les messages accentués / flèches
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 sys.path.insert(0, os.environ.get("NETDIAG_ROOT", os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 errors: list[str] = []
