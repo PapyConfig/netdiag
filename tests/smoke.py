@@ -67,14 +67,19 @@ w.trace_tab.toggle()
 w.ping_tab.add_targets(["127.0.0.1", "192.0.2.1"])  # 192.0.2.1 (TEST-NET) : pertes attendues
 
 
-def browse_sysinfo():
+def browse_sysinfo(waited=0):
     tree = w.sys_tab.tree
+    if tree.topLevelItemCount() == 0 and waited < 60:  # collecte encore en cours (≈ 10 s sous Windows)
+        QTimer.singleShot(1000, lambda: browse_sysinfo(waited + 1))
+        return
     for i in range(tree.topLevelItemCount()):
         g = tree.topLevelItem(i)
         for j in range(g.childCount()):
             tree.setCurrentItem(g.child(j))
             app.processEvents()
     check(tree.topLevelItemCount() > 0, "arbre système rempli")
+    visit_tabs()
+    QTimer.singleShot(5000, finish)
 
 
 def visit_tabs():
@@ -102,8 +107,6 @@ def finish():
 
 
 QTimer.singleShot(3000, browse_sysinfo)
-QTimer.singleShot(4000, visit_tabs)
-QTimer.singleShot(9000, finish)
 app.exec()
 
 if errors:
